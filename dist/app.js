@@ -1,6 +1,6 @@
 import {NAMES,WEEKS,today,counts,average,isBelowAverage,canonicalName,normalizeNames} from './data.js';
 const $=s=>document.querySelector(s), KEY='voyageur-pizza-2026-v1';
-let state={}, selected='', past=false, month='2026-10', activeWeek=null, busy=true;
+let state={}, selected='', past=false, month='2026-10', activeWeek=null, busy=true, cloudLoaded=false, exporting=false;
 try{state=JSON.parse(localStorage.getItem('voyageur-pizza-2026-cloud-cache')||'{}');}catch{}
 try{selected=localStorage.getItem(KEY+'-name')||'';}catch{}
 selected=canonicalName(selected);
@@ -14,6 +14,7 @@ function fmt(date,options){return new Intl.DateTimeFormat('en-CA',{...options,ti
 function availableMonths(){return [...new Set(WEEKS.filter(w=>past?(w.date||w.id)<today():(w.date||w.id)>=today()).map(w=>w.month))];}
 function normalizeMonth(){const months=availableMonths();if(!months.includes(month))month=months[0]||'2026-10';}
 function render(){
+ $('#export-pdf').disabled=busy||!cloudLoaded||exporting;
  const day=today(), stats=counts(state,day), avg=average(stats), upcoming=WEEKS.filter(w=>w.date&&w.date>=day), next=upcoming[0];
  $('#next-date').textContent=next?fmt(next.date,{month:'short',day:'numeric'}):'All done!';
  const nextN=next?(state[next.id]?.crew||[]).length:0;
@@ -66,7 +67,14 @@ $('#picker').addEventListener('close',()=>activeWeek=null);
 $('#upcoming').onclick=()=>{past=false;normalizeMonth();render();};$('#history').onclick=()=>{past=true;normalizeMonth();render();};
 for(const [id,delta] of [['prev',-1],['next',1]])$('#'+id).onclick=()=>{const months=availableMonths();month=months[months.indexOf(month)+delta]||month;render();};
 let lastDay=today();setInterval(()=>{if(today()!==lastDay){lastDay=today();render();}},60000);
+$('#export-pdf').onclick=async()=>{
+ if(busy||!cloudLoaded||exporting)return;
+ exporting=true;$('#export-pdf').textContent='Creating PDF…';render();
+ try{const snapshot=structuredClone(state);const {downloadCalendar}=await import('./pdf-export.js');await downloadCalendar(snapshot);notice('PDF downloaded.');}
+ catch(e){notice('Could not create the PDF. Please try again.');console.warn(e);}
+ finally{exporting=false;$('#export-pdf').textContent='Export PDF';render();}
+};
 normalizeMonth();render();status('Connecting…');
 // Enable cloud writes only after the first server snapshot succeeds.
-try{const {connect}=await import('./firebase.js');await connect({onData(data){state=data;render();if(activeWeek)renderDialog();},onStatus:status,setPersist(fn){persist=fn;}});}catch(e){status('Cloud unavailable · reload to retry',true);console.warn('Cloud sync unavailable:',e.code||e.message);}finally{busy=false;render();}
+try{const {connect}=await import('./firebase.js');await connect({onData(data){cloudLoaded=true;state=data;render();if(activeWeek)renderDialog();},onStatus:status,setPersist(fn){persist=fn;}});}catch(e){status('Cloud unavailable · reload to retry',true);console.warn('Cloud sync unavailable:',e.code||e.message);}finally{busy=false;render();}
 if(document.modelContext?.registerTool){try{document.modelContext.registerTool({name:'get_pizza_schedule',description:'Read fundraiser dates, crews, confirmed attendance, and participation totals.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>({weeks:WEEKS.map(w=>({...w,...state[w.id]})),totals:counts(state)})});document.modelContext.registerTool({name:'set_pizza_signup',description:'Join or leave an upcoming fundraiser for one named classmate.',inputSchema:{type:'object',properties:{weekId:{type:'string'},name:{type:'string',enum:NAMES},join:{type:'boolean'}},required:['weekId','name','join'],additionalProperties:false},execute:async input=>{if(typeof input.join!=='boolean')throw Error('join must be boolean');await change(input.weekId,'crew',input.name,input.join);return {weekId:input.weekId,crew:state[input.weekId]?.crew||[]};}});}catch{}}

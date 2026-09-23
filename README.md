@@ -42,3 +42,7 @@ git branch -D pages-release
 ```
 
 GitHub Pages serves the root of `gh-pages`.
+
+## PDF export
+
+Choose **Export PDF** below The lineup to download a three-page US Letter calendar covering October 2026 through June 2027. It includes the current crew names, available spots, closure weeks, and export date. Export becomes available after Firebase loads and any pending signup finishes. Files are generated in your browser using the bundled pdf-lib 1.17.1 (MIT), without sending calendar data to a PDF service.
