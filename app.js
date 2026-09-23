@@ -1,10 +1,12 @@
-import {NAMES,WEEKS,today,counts,average,isBelowAverage} from './data.js';
+import {NAMES,WEEKS,today,counts,average,isBelowAverage,canonicalName,normalizeNames} from './data.js';
 const $=s=>document.querySelector(s), KEY='voyageur-pizza-2026-v1';
 let state={}, selected='', past=false, month='2026-10', activeWeek=null, busy=true;
 try{state=JSON.parse(localStorage.getItem('voyageur-pizza-2026-cloud-cache')||'{}');}catch{}
 try{selected=localStorage.getItem(KEY+'-name')||'';}catch{}
+selected=canonicalName(selected);
 if(!NAMES.includes(selected))selected='';
-state=Object.fromEntries(WEEKS.filter(w=>w.date).map(w=>[w.id,{crew:NAMES.filter(n=>Array.isArray(state?.[w.id]?.crew)&&state[w.id].crew.includes(n)),attended:NAMES.filter(n=>Array.isArray(state?.[w.id]?.attended)&&state[w.id].attended.includes(n))}]));
+if(selected){try{localStorage.setItem(KEY+'-name',selected);}catch{}}
+state=Object.fromEntries(WEEKS.filter(w=>w.date).map(w=>[w.id,{crew:normalizeNames(state?.[w.id]?.crew),attended:normalizeNames(state?.[w.id]?.attended)}]));
 let persist=async()=>{throw Error('Firebase is not connected. Please reload to try again.');};
 function notice(s){$('#toast').textContent=s;$('#toast').classList.add('show');clearTimeout(notice.timer);notice.timer=setTimeout(()=>$('#toast').classList.remove('show'),3200);}
 function status(s,error=false){if(error)notice(s);}
@@ -29,7 +31,7 @@ function render(){
  const weeks=WEEKS.filter(w=>w.month===month&&(past?(w.date||w.id)<day:(w.date||w.id)>=day));
  $('#weeks').innerHTML=weeks.length?weeks.map(w=>{
  const date=w.date||w.id,crew=state[w.id]?.crew||[],joined=crew.includes(selected),attended=state[w.id]?.attended||[];
- return `<article class="week ${!w.date?'skip':''} ${joined?'joined':''}"><div class="date"><strong>${Number(date.slice(8))}</strong><span>${fmt(date,{weekday:'short'}).toUpperCase()}</span></div><div class="week-body"><div class="week-status ${crew.length>=3?'full':''}">${w.date?`<span class="dot"></span>${past?`${attended.length} confirmed · ${crew.length} signed up`:crew.length>=3?`${crew.length} people · crew ready`:`${crew.length} of 3 · ${3-crew.length} needed`}`:'No fundraiser'}</div>${w.date?`<div class="crew-names"><button class="crew-detail" data-detail="${w.id}" aria-label="View crew for ${date}">${crew.length?crew.join(', '):'Be the first to join'}</button></div>${w.reason?`<div class="shifted">↳ ${w.reason}</div>`:''}`:`<div class="skip-note">${w.reason}</div>`}</div>${w.date?`<button class="join ${past?'past':joined?'selected':''}" data-${past?'detail':'join'}="${w.id}" ${busy?'disabled':''}>${past?'Attendance':joined?'✓ Joined':'+ Join'}</button>`:''}</article>`;
+ return `<article class="week ${!w.date?'skip':''} ${joined?'joined':''}"><div class="date"><strong>${Number(date.slice(8))}</strong><span>${fmt(date,{weekday:'short'}).toUpperCase()}</span></div><div class="week-body"><div class="week-status ${crew.length>=3?'full':''}">${w.date?`<span class="dot"></span>${past?`${attended.length} confirmed · ${crew.length} signed up`:crew.length>=3?`${crew.length} people · crew ready`:`${crew.length} of 3 · ${3-crew.length} needed`}`:'No fundraiser'}</div>${w.date?`<div class="crew-names"><button class="crew-detail" data-detail="${w.id}" aria-label="View crew for ${date}">${crew.length?crew.join(', '):'Be the first to join'}</button></div>${w.reason?`<div class="shifted">↳ ${w.reason}</div>`:''}`:`<div class="skip-note">${w.reason}</div>`}</div>${w.date?`<button class="join ${past?'past':joined?'selected':''}" data-${past?'detail':'join'}="${w.id}" ${busy||(!past&&!joined&&crew.length>=3)?'disabled':''}>${past?'Attendance':joined?'✓ Joined':crew.length>=3?'Full':'+ Join'}</button>`:''}</article>`;
  }).join(''):`<div class="empty">${past?'No past weeks yet.<br>After each fundraiser, confirm who helped here.':'All fundraiser weeks are finished. Thank you, crew!'}</div>`;
 }
 async function change(id,field,name,add){
@@ -37,12 +39,12 @@ async function change(id,field,name,add){
  const week=WEEKS.find(w=>w.id===id&&w.date);if(!week||!NAMES.includes(name)||!['crew','attended'].includes(field))throw Error('Invalid signup.');
  if(field==='attended'&&week.date>=today())throw Error('Attendance can be confirmed after the fundraiser date.');
  if(field==='crew'&&week.date<today())throw Error('Past signups cannot be changed. Use attendance instead.');
- busy=true;render();try{await persist(id,field,name,add);render();if(activeWeek)renderDialog();}catch(e){notice('Could not save. Check your connection and reload.');throw e;}finally{busy=false;render();}
+ busy=true;render();try{await persist(id,field,name,add);render();if(activeWeek)renderDialog();}catch(e){notice(e.code==='crew-full'?e.message:'Could not save. Check your connection and reload.');throw e;}finally{busy=false;render();}
 }
 function renderDialog(){const w=WEEKS.find(w=>w.id===activeWeek);if(!w)return;const isPast=w.date<today(),crew=state[w.id]?.crew||[],attended=state[w.id]?.attended||[];
  $('#dialog-title').textContent=fmt(w.date,{weekday:'long',month:'long',day:'numeric'});
  $('#dialog-eyebrow').textContent=isPast?'CONFIRM WHO HELPED':'THIS WEEK’S CREW';
- $('#dialog-help').textContent=isPast?'Check everyone who actually helped. Only confirmed attendance counts as done. Changes save automatically.':'Select your name at the top of the page, then join this week. Everyone is welcome, even after we reach three.';
+ $('#dialog-help').textContent=isPast?'Check everyone who actually helped. Only confirmed attendance counts as done. Changes save automatically.':'Each week has room for three people. If the crew is full, choose another week.';
  $('#crew-list').innerHTML=isPast?NAMES.map(n=>`<label>${n}${crew.includes(n)?' · signed up':''}<input type="checkbox" data-attend="${n}" ${attended.includes(n)?'checked':''} aria-label="${n} helped"></label>`).join(''):crew.length?crew.map(n=>`<label>${n}<span class="attended-label">Signed up ✓</span></label>`).join(''):'<p>No one has signed up yet.</p>';
 }
 $('#person').insertAdjacentHTML('beforeend',NAMES.map(n=>`<option>${n}</option>`).join(''));$('#person').value=selected;

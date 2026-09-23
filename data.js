@@ -1,4 +1,4 @@
-export const NAMES=['Nicolas','Raelle','Maryam','Joshua','Samual','Thomas','Ethan','Vivianne','Ellianna','Lachlan','Eric'];
+export const NAMES=['Nicolas','Raelle','Maryam','Joshua','Samuel','Thomas','Ethan','Vivianne','Ellianna','Lachlan','Eric'];
 export const SOURCE='https://voyageur.centreest.ca/wp-content/uploads/2026/08/Calendrier-Voyageur-2026-2027-FR.pdf';
 const changes={
  '2026-10-09':['2026-10-08','Friday: professional development'],
@@ -24,3 +24,14 @@ export function counts(data,day=today()){
 }
 export function average(stats){return NAMES.reduce((sum,n)=>sum+stats[n].planned,0)/NAMES.length;}
 export function isBelowAverage(planned,avg){return avg-planned>=4;}
+
+export function canonicalName(name){return name==='Samual'?'Samuel':name;}
+export function normalizeNames(list){return [...new Set((Array.isArray(list)?list:[]).map(canonicalName).filter(n=>NAMES.includes(n)))];}
+export function updateMembers(list,name,add,limit=Infinity){
+ const members=normalizeNames(list);name=canonicalName(name);
+ if(!NAMES.includes(name))throw Error('Invalid name.');
+ if(!add)return members.filter(n=>n!==name);
+ if(members.includes(name))return members;
+ if(members.length>=limit){const error=Error('This week already has 3 people. Choose another week.');error.code='crew-full';throw error;}
+ return [...members,name];
+}
